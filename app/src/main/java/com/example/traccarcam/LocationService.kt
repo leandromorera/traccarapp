@@ -1,4 +1,3 @@
-\
 package com.example.traccarcam
 
 import android.app.Notification
@@ -11,11 +10,11 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.IBinder
 import android.os.BatteryManager
+import android.os.Looper
 import androidx.core.app.NotificationCompat
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.google.android.gms.location.*
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.util.concurrent.TimeUnit
 
 class LocationService : Service() {
@@ -33,6 +32,9 @@ class LocationService : Service() {
             .readTimeout(10, TimeUnit.SECONDS)
             .build()
     }
+
+    private lateinit var fusedClient: FusedLocationProviderClient
+    private lateinit var locationCallback: LocationCallback
 
     private var baseUrl: String = ""
     private var deviceId: String = ""
@@ -64,35 +66,37 @@ class LocationService : Service() {
     }
 
     private fun startLocationUpdates() {
-        val fused = LocationServices.getFusedLocationProviderClient(this)
+        fusedClient = LocationServices.getFusedLocationProviderClient(this)
         val req = LocationRequest.Builder(
             Priority.PRIORITY_HIGH_ACCURACY, 10_000L
         ).setMinUpdateIntervalMillis(5_000L).build()
 
-        fused.requestLocationUpdates(req, { loc ->
-            val l = loc.lastLocation ?: return@requestLocationUpdates
-            val batt = getBatteryPct()
-            // OsmAnd protocol: http://host:5055/?id=<uniqueId>&lat=..&lon=..&timestamp=..
-            val url = HttpUrl.parse(baseUrl)?.newBuilder()?.apply {
-                addQueryParameter("id", deviceId)
-                addQueryParameter("lat", l.latitude.toString())
-                addQueryParameter("lon", l.longitude.toString())
-                addQueryParameter("timestamp", (System.currentTimeMillis()/1000).toString())
-                addQueryParameter("speed", l.speed.toString())
-                addQueryParameter("bearing", l.bearing.toString())
-                addQueryParameter("altitude", l.altitude.toString())
-                addQueryParameter("accuracy", l.accuracy.toString())
-                addQueryParameter("batt", batt.toString())
-            }?.build()
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                val l = result.lastLocation ?: return
+                val batt = getBatteryPct()
 
-            url?.let {
-                val req = Request.Builder().url(it).get().build()
+                val httpUrl = baseUrl.toHttpUrlOrNull()?.newBuilder()?.apply {
+                    addQueryParameter("id", deviceId)
+                    addQueryParameter("lat", l.latitude.toString())
+                    addQueryParameter("lon", l.longitude.toString())
+                    addQueryParameter("timestamp", (System.currentTimeMillis() / 1000).toString())
+                    addQueryParameter("speed", l.speed.toString())
+                    addQueryParameter("bearing", l.bearing.toString())
+                    addQueryParameter("altitude", l.altitude.toString())
+                    addQueryParameter("accuracy", l.accuracy.toString())
+                    addQueryParameter("batt", batt.toString())
+                }?.build() ?: return
+
+                val req = Request.Builder().url(httpUrl).get().build()
                 client.newCall(req).enqueue(object : Callback {
                     override fun onFailure(call: Call, e: java.io.IOException) { /* ignore */ }
                     override fun onResponse(call: Call, response: Response) { response.close() }
                 })
             }
-        }, mainLooper)
+        }
+
+        fusedClient.requestLocationUpdates(req, locationCallback, Looper.getMainLooper())
     }
 
     private fun getBatteryPct(): Int {
@@ -107,6 +111,8 @@ class LocationService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        LocationServices.getFusedLocationProviderClient(this).removeLocationUpdates { }
+        if (this::fusedClient.isInitialized && this::locationCallback.isInitialized) {
+            fusedClient.removeLocationUpdates(locationCallback)
+        }
     }
 }

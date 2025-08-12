@@ -1,4 +1,3 @@
-\
 package com.example.traccarcam
 
 import android.Manifest
