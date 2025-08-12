@@ -15,12 +15,6 @@ android {
     versionName = "1.0"
   }
 
-  // Force Java 17 for Java sources
-  compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-  }
-
   buildFeatures {
     viewBinding = true
   }
@@ -30,15 +24,6 @@ android {
       excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
   }
-}
-
-// Force Kotlin to 17
-kotlin {
-  jvmToolchain(17)
-}
-
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
-  kotlinOptions.jvmTarget = "17"
 }
 
 dependencies {
